@@ -20,6 +20,7 @@ var reconnectDelay = time.Second
 // Implements a pool of buffered channels to send and receive
 // websocket messages.
 type WebSocketPool struct {
+	serverAddr   string
 	dialer       *websocket.Dialer
 	connection   *websocket.Conn
 	connectionMu sync.RWMutex
@@ -38,6 +39,7 @@ func NewWebSocketPool(url string, poolSize int) (*WebSocketPool, error) {
 	}
 
 	wp := &WebSocketPool{
+		serverAddr: url,
 		dialer:     dialer,
 		connection: conn,
 		poolSize:   poolSize,
@@ -126,11 +128,10 @@ func (wp *WebSocketPool) Reconnect() error {
 		wp.connection = nil
 	}
 
-	conn, _, err := wp.dialer.Dial(wp.connection.RemoteAddr().String(), nil)
+	conn, _, err := wp.dialer.Dial(wp.serverAddr, nil)
 	if err != nil {
 		return err
 	}
-
 	wp.connection = conn
 	return nil
 }
