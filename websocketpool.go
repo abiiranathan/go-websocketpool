@@ -13,6 +13,10 @@ var (
 	ErrConnectionClosed = errors.New("websocket connection closed")
 )
 
+var readTimeout = time.Second * 10
+var writeTimeout = time.Second * 10
+var reconnectDelay = time.Second
+
 // Implements a pool of buffered channels to send and receive
 // websocket messages.
 type WebSocketPool struct {
@@ -72,14 +76,22 @@ func (wp *WebSocketPool) send(message []byte) error {
 	conn := wp.connection
 	wp.connectionMu.RUnlock()
 
-	conn.SetWriteDeadline(time.Now().Add(time.Second))
+	conn.SetWriteDeadline(time.Now().Add(writeTimeout))
 	err := conn.WriteMessage(websocket.TextMessage, message)
 	if err != nil {
-		wp.connectionMu.Lock()
-		if conn == wp.connection {
-			wp.connection = nil
+		// Try reconnecting
+		time.Sleep(reconnectDelay)
+		if err := wp.Reconnect(); err != nil {
+			return err
 		}
-		wp.connectionMu.Unlock()
+
+		// Retry sending after successful reconnection
+		conn = wp.connection
+		conn.SetWriteDeadline(time.Now().Add(writeTimeout))
+		err = conn.WriteMessage(websocket.TextMessage, message)
+		if err != nil {
+			return err
+		}
 	}
 	return err
 }
@@ -101,6 +113,7 @@ func (wp *WebSocketPool) ReadMessage() (int, []byte, error) {
 		return 0, nil, ErrConnectionClosed
 	}
 
+	wp.connection.SetReadDeadline(time.Now().Add(readTimeout))
 	return wp.connection.ReadMessage()
 }
 
@@ -133,4 +146,18 @@ func (wp *WebSocketPool) Close() {
 		wp.connection.Close()
 		wp.connection = nil
 	}
+}
+
+// Set the time taken to read from a connection.
+func SetReadTimeout(timeout time.Duration) {
+	readTimeout = timeout
+}
+
+// Set the time taken to write to a connection.
+func SetWriteTimeout(timeout time.Duration) {
+	writeTimeout = timeout
+}
+
+func SetRetryDelay(delay time.Duration) {
+	reconnectDelay = delay
 }
